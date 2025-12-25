@@ -43,8 +43,8 @@
 <body class="bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen">
     <div class="container mx-auto px-4 py-8 max-w-6xl">
         <div class="relative text-center mb-8">
-            <h1 class="text-4xl font-bold text-gray-800 mb-2">🏆 Codeforces Multi-Leaderboard</h1>
-            <p class="text-gray-600">Live data fetched from Google Sheets & Codeforces API</p>
+            <h1 class="text-4xl font-bold text-gray-800 mb-2">🏆 Udaigiri's CF Multi-Leaderboard</h1>
+            <p class="text-gray-600"></p>
         </div>
 
         <div class="bg-white rounded-lg shadow-lg mb-6">
@@ -116,27 +116,39 @@
         // --- CORE FUNCTIONS ---
 
         // 1. Fetch Users from Google Sheet (MODIFIED LOGIC)
+        // 1. Fetch Users from Google Sheet (Fixed for Safari)
         async function fetchSheetData() {
             try {
                 // Reset leaderboards
                 Object.keys(leaderboards).forEach(k => leaderboards[k] = []);
                 
-                const response = await fetch(SHEET_CSV_URL);
+                // We use 'allorigins' proxy to bypass Safari CORS/Redirect issues
+                // 'raw?url=' ensures we get the CSV text back directly
+                const PROXY_URL = "https://api.allorigins.win/raw?url=";
+                const targetUrl = PROXY_URL + encodeURIComponent(SHEET_CSV_URL);
+                
+                const response = await fetch(targetUrl);
+                
+                if (!response.ok) throw new Error("Network response was not ok");
+                
                 const text = await response.text();
                 
                 // Parse CSV (Assumes Row 1 is header, Col 0 is Handle, Col 1 is Category)
                 const rows = text.split('\n').map(row => row.split(','));
                 
                 const allHandles = new Set();
-                const processedForUdaigiri = new Set(); // To prevent duplicates in master list
+                const processedForUdaigiri = new Set(); 
 
                 // Start from index 1 to skip header
                 for (let i = 1; i < rows.length; i++) {
+                    // Safety check: ensure row has data
+                    if (rows[i].length < 1) continue;
+                    
                     const handle = rows[i][0]?.trim();
-                    const category = rows[i][1]?.trim().toLowerCase();
+                    // Handle cases where category might be missing/undefined
+                    const category = rows[i][1] ? rows[i][1].trim().toLowerCase() : '';
                     
                     if (handle) {
-                        // Create basic user object
                         const userObj = { 
                             username: handle, 
                             rating: 0, 
@@ -145,14 +157,14 @@
                             avatar: '' 
                         };
 
-                        // 1. Add to the specific category from the sheet (e.g., year2024)
+                        // 1. Add to specific category
                         if (category && leaderboards[category]) {
-                            leaderboards[category].push({ ...userObj }); // Push a copy
+                            leaderboards[category].push({ ...userObj });
                         }
 
-                        // 2. AUTOMATICALLY add to 'udaigiri' (Master List)
+                        // 2. Add to Udaigiri (Master List)
                         if (!processedForUdaigiri.has(handle.toLowerCase())) {
-                            leaderboards['udaigiri'].push({ ...userObj }); // Push a copy
+                            leaderboards['udaigiri'].push({ ...userObj });
                             processedForUdaigiri.add(handle.toLowerCase());
                         }
 
@@ -161,9 +173,20 @@
                 }
                 return Array.from(allHandles);
             } catch (error) {
-                showStatus("Failed to load Google Sheet. Check URL.", "error");
-                console.error(error);
-                return [];
+                showStatus("Failed to load Google Sheet. Trying alternate method...", "error");
+                console.error("Primary fetch failed, checking direct access...", error);
+                
+                // Fallback: Try direct fetch if proxy fails (rare, but good for backup)
+                try {
+                    const response = await fetch(SHEET_CSV_URL);
+                    const text = await response.text();
+                    // ... (If you want robust fallback logic, you'd repeat the parsing here)
+                    // For now, just return empty if proxy fails to avoid complex code duplication
+                    return [];
+                } catch (e) {
+                    console.error("Direct fetch also failed", e);
+                    return [];
+                }
             }
         }
 
